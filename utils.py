@@ -14,14 +14,13 @@ import img_utils
 
 
 class DroneDataGenerator(ImageDataGenerator):
+    #print('Entered Drone Data Generator')
     """
     Generate minibatches of images and labels with real-time augmentation.
-
     The only function that changes w.r.t. parent class is the flow that
     generates data. This function needed in fact adaptation for different
     directory structure and labels. All the remaining functions remain
     unchanged.
-
     For an example usage, see the evaluate.py script
     """
     def flow_from_directory(self, directory, target_size=(224,224),
@@ -51,7 +50,6 @@ class DroneDirectoryIterator(Iterator):
            folder_n/
                     images/
                     sync_steering.txt or labels.txt
-
     # Arguments
        directory: Path to the root directory to read data from.
        image_data_generator: Image Generator.
@@ -62,7 +60,6 @@ class DroneDirectoryIterator(Iterator):
        shuffle: Whether to shuffle data or not
        seed : numpy seed to shuffle data
        follow_links: Bool, whether to follow symbolic links or not
-
     # TODO: Add functionality to save images to have a look at the augmentation
     """
     def __init__(self, directory, image_data_generator,
@@ -106,6 +103,7 @@ class DroneDirectoryIterator(Iterator):
 
         # Conversion of list into array
         self.ground_truth = np.array(self.ground_truth, dtype = K.floatx())
+        #print('Ground Truth', self.ground_truth)
 
         assert self.samples > 0, "Did not find any data"
 
@@ -159,17 +157,19 @@ class DroneDirectoryIterator(Iterator):
                     self.ground_truth.append(ground_truth[frame_number])
                     self.exp_type.append(exp_type)
                     self.samples += 1
+        #print('HEREEEEEEEEEEEE')
 
-    def next(self):
+    #Adding this function and calling it in next
+    def _get_batches_of_transformed_samples(self, index_array):
         """
         Public function to fetch next batch.
-
+        
         # Returns
             The next batch of images and labels.
         """
-        with self.lock:
-            index_array = next(self.index_generator)
-            current_batch_size = index_array.shape[0]
+        #print('index array transformed:',index_array)
+        current_batch_size = index_array.shape[0]
+        #current_batch_size = index_array[0].shape[0]
 
         # Image transformation is not under thread lock, so it can be done in
         # parallel
@@ -210,6 +210,55 @@ class DroneDirectoryIterator(Iterator):
         return batch_x, batch_y
 
 
+    def next(self):
+        """
+        Public function to fetch next batch.
+        # Returns
+            The next batch of images and labels.
+        """
+        with self.lock:
+            index_array = next(self.index_generator)
+            #print('index array in utils',index_array)
+            #current_batch_size = index_array.shape[0]
+            #current_batch_size = index_array[0].shape[0]
+
+        return self._get_batches_of_transformed_samples(index_array)
+
+        ''''
+        # Image transformation is not under thread lock, so it can be done in
+        # parallel
+        batch_x = np.zeros((current_batch_size,) + self.image_shape,
+                dtype=K.floatx())
+        batch_steer = np.zeros((current_batch_size, 2,),
+                dtype=K.floatx())
+        batch_coll = np.zeros((current_batch_size, 2,),
+                dtype=K.floatx())
+        grayscale = self.color_mode == 'grayscale'
+        # Build batch of image data
+        for i, j in enumerate(index_array[0]):
+            fname = self.filenames[j]
+            x = img_utils.load_img(os.path.join(self.directory, fname),
+                    grayscale=grayscale,
+                    crop_size=self.crop_size,
+                    target_size=self.target_size)
+            x = self.image_data_generator.random_transform(x)
+            x = self.image_data_generator.standardize(x)
+            batch_x[i] = x
+            # Build batch of steering and collision data
+            if self.exp_type[index_array[i]] == 1:
+                # Steering experiment (t=1)
+                batch_steer[i,0] =1.0
+                batch_steer[i,1] = self.ground_truth[index_array[i]]
+                batch_coll[i] = np.array([1.0, 0.0])
+            else:
+                # Collision experiment (t=0)
+                batch_steer[i] = np.array([0.0, 0.0])
+                batch_coll[i,0] = 0.0
+                batch_coll[i,1] = self.ground_truth[index_array[i]]
+        batch_y = [batch_steer, batch_coll]
+        return batch_x, batch_y
+        '''
+
 
 def compute_predictions_and_gt(model, generator, steps,
                                      max_q_size=10,
@@ -220,7 +269,6 @@ def compute_predictions_and_gt(model, generator, steps,
     The generator should return the same kind of data as accepted by
     `predict_on_batch`.
     Function adapted from keras `predict_generator`.
-
     # Arguments
         generator: Generator yielding batches of input samples.
         steps: Total number of steps (batches of samples)
@@ -234,10 +282,8 @@ def compute_predictions_and_gt(model, generator, steps,
             as they can't be passed
             easily to children processes.
         verbose: verbosity mode, 0 or 1.
-
     # Returns
         Numpy array(s) of predictions and associated ground truth.
-
     # Raises
         ValueError: In case the generator yields
             data in an invalid format.
@@ -309,10 +355,8 @@ def compute_predictions_and_gt(model, generator, steps,
 def hard_mining_mse(k):
     """
     Compute MSE for steering evaluation and hard-mining for the current batch.
-
     # Arguments
         k: number of samples for hard-mining.
-
     # Returns
         custom_mse: average MSE for the current batch.
     """
@@ -350,10 +394,8 @@ def hard_mining_mse(k):
 def hard_mining_entropy(k):
     """
     Compute binary cross-entropy for collision evaluation and hard-mining.
-
     # Arguments
         k: Number of samples for hard-mining.
-
     # Returns
         custom_bin_crossentropy: average binary cross-entropy for the current batch.
     """
